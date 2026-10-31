@@ -547,3 +547,242 @@ class BillingCommandTests(TestCase):
         self.assertIn(f"Found 1 active subscription(s) eligible for billing.", output)
         self.assertEqual(Invoice.objects.filter(subscription=self.sub_future).count(), 1)
         self.assertEqual(Invoice.objects.filter(subscription=self.sub_due).count(), 0)
+
+
+from django.urls import reverse
+from billing.forms import PaymentForm
+
+
+class PaymentFormTests(TestCase):
+    def setUp(self):
+        self.staff_user = User.objects.create_user(
+            email="staff_form@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_STAFF,
+        )
+        self.customer = User.objects.create_user(
+            email="cust_form@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_CUSTOMER,
+        )
+        self.plan = Plan.objects.create(name="Standard", price=Decimal("100.00"), billing_period=Plan.PERIOD_MONTHLY)
+        self.sub = Subscription.objects.create(customer=self.customer, plan=self.plan, status=Subscription.STATUS_ACTIVE)
+        self.inv = Invoice.objects.create(
+            subscription=self.sub,
+            period_start=date.today(),
+            period_end=date.today() + timedelta(days=30),
+            status=Invoice.STATUS_CONFIRMED,
+            subtotal=Decimal("100.00"),
+            total=Decimal("100.00"),
+            due_date=date.today() + timedelta(days=14),
+        )
+
+    def test_form_initialization_with_balance(self):
+        """Verifies PaymentForm initializes amount with remaining balance and shows helpful text."""
+        form = PaymentForm(invoice=self.inv, user=self.staff_user)
+        self.assertEqual(form.initial.get("amount"), Decimal("100.00"))
+        self.assertIn("Outstanding balance: $100.00", form.fields["amount"].help_text)
+
+    def test_form_valid_partial_payment(self):
+        """Verifies partial payment is saved and reduces balance due while keeping status CONFIRMED."""
+        data = {
+            "amount": "40.00",
+            "method": Payment.METHOD_CARD,
+            "payment_date": date.today().isoformat(),
+            "reference": "TXN-PARTIAL-001",
+        }
+        form = PaymentForm(data=data, invoice=self.inv, user=self.staff_user)
+        self.assertTrue(form.is_valid(), form.errors)
+        pmt = form.save()
+
+        self.assertEqual(pmt.amount, Decimal("40.00"))
+        self.assertEqual(pmt.recorded_by, self.staff_user)
+        self.inv.refresh_from_db()
+        self.assertEqual(self.inv.balance_due, Decimal("60.00"))
+        self.assertEqual(self.inv.amount_paid, Decimal("40.00"))
+        self.assertEqual(self.inv.status, Invoice.STATUS_CONFIRMED)
+
+    def test_form_full_payment_marks_invoice_paid(self):
+        """Verifies full payment via form atomically marks invoice status as PAID."""
+        data = {
+            "amount": "100.00",
+            "method": Payment.METHOD_BANK_TRANSFER,
+            "payment_date": date.today().isoformat(),
+            "reference": "TXN-FULL-001",
+        }
+        form = PaymentForm(data=data, invoice=self.inv, user=self.staff_user)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.inv.refresh_from_db()
+        self.assertEqual(self.inv.balance_due, Decimal("0.00"))
+        self.assertEqual(self.inv.amount_paid, Decimal("100.00"))
+        self.assertEqual(self.inv.status, Invoice.STATUS_PAID)
+
+    def test_form_overpayment_rejected(self):
+        """Verifies payment exceeding invoice balance is rejected with form error."""
+        data = {
+            "amount": "120.00",
+            "method": Payment.METHOD_CARD,
+            "payment_date": date.today().isoformat(),
+        }
+        form = PaymentForm(data=data, invoice=self.inv, user=self.staff_user)
+        self.assertFalse(form.is_valid())
+        self.assertIn("amount", form.errors)
+
+    def test_form_zero_payment_rejected(self):
+        """Verifies zero payment amount is rejected with form error."""
+        data = {
+            "amount": "0.00",
+            "method": Payment.METHOD_CARD,
+            "payment_date": date.today().isoformat(),
+        }
+        form = PaymentForm(data=data, invoice=self.inv, user=self.staff_user)
+        self.assertFalse(form.is_valid())
+        self.assertIn("amount", form.errors)
+
+
+class BillingViewTests(TestCase):
+    def setUp(self):
+        self.staff_user = User.objects.create_user(
+            email="staff_view@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_STAFF,
+            is_staff=True,
+        )
+        self.customer1 = User.objects.create_user(
+            email="customer1_view@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_CUSTOMER,
+        )
+        self.customer2 = User.objects.create_user(
+            email="customer2_view@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_CUSTOMER,
+        )
+
+        self.plan = Plan.objects.create(name="Pro View Plan", price=Decimal("150.00"), billing_period=Plan.PERIOD_MONTHLY)
+        self.sub1 = Subscription.objects.create(customer=self.customer1, plan=self.plan, status=Subscription.STATUS_ACTIVE)
+        self.sub2 = Subscription.objects.create(customer=self.customer2, plan=self.plan, status=Subscription.STATUS_ACTIVE)
+
+        self.inv1 = Invoice.objects.create(
+            subscription=self.sub1,
+            period_start=date.today(),
+            period_end=date.today() + timedelta(days=30),
+            status=Invoice.STATUS_DRAFT,
+            subtotal=Decimal("150.00"),
+            total=Decimal("150.00"),
+            due_date=date.today() + timedelta(days=14),
+        )
+        InvoiceLine.objects.create(
+            invoice=self.inv1,
+            description="Pro Service",
+            quantity=1,
+            unit_price=Decimal("150.00"),
+            amount=Decimal("150.00"),
+        )
+
+        self.inv2 = Invoice.objects.create(
+            subscription=self.sub2,
+            period_start=date.today(),
+            period_end=date.today() + timedelta(days=30),
+            status=Invoice.STATUS_CONFIRMED,
+            subtotal=Decimal("150.00"),
+            total=Decimal("150.00"),
+            due_date=date.today() + timedelta(days=14),
+        )
+
+    def test_invoice_list_view_data_scoping(self):
+        """Verifies customer only sees own invoices, while staff sees all."""
+        # Customer 1
+        self.client.force_login(self.customer1)
+        resp_cust = self.client.get(reverse("billing:list"))
+        self.assertEqual(resp_cust.status_code, 200)
+        self.assertContains(resp_cust, self.inv1.invoice_number)
+        self.assertNotContains(resp_cust, self.inv2.invoice_number)
+
+        # Staff
+        self.client.force_login(self.staff_user)
+        resp_staff = self.client.get(reverse("billing:list"))
+        self.assertEqual(resp_staff.status_code, 200)
+        self.assertContains(resp_staff, self.inv1.invoice_number)
+        self.assertContains(resp_staff, self.inv2.invoice_number)
+
+    def test_invoice_detail_view_permissions(self):
+        """Verifies customer cannot access another customer's invoice (HTTP 404)."""
+        self.client.force_login(self.customer1)
+        # Attempt to access customer2's invoice
+        resp = self.client.get(reverse("billing:detail", kwargs={"invoice_id": self.inv2.id}))
+        self.assertEqual(resp.status_code, 404)
+
+        # Access own invoice succeeds
+        resp_own = self.client.get(reverse("billing:detail", kwargs={"invoice_id": self.inv1.id}))
+        self.assertEqual(resp_own.status_code, 200)
+        self.assertContains(resp_own, self.inv1.invoice_number)
+        self.assertContains(resp_own, "Pro Service")
+
+    def test_record_payment_view_staff_only(self):
+        """Verifies staff can GET and POST payments, while customer receives HTTP 403."""
+        # Customer is denied
+        self.client.force_login(self.customer1)
+        resp_denied = self.client.get(reverse("billing:record_payment", kwargs={"invoice_id": self.inv2.id}))
+        self.assertEqual(resp_denied.status_code, 403)
+
+        # Staff GET
+        self.client.force_login(self.staff_user)
+        resp_get = self.client.get(reverse("billing:record_payment", kwargs={"invoice_id": self.inv2.id}))
+        self.assertEqual(resp_get.status_code, 200)
+        self.assertContains(resp_get, "Record Payment")
+
+        # Staff POST partial payment
+        post_data = {
+            "amount": "50.00",
+            "method": Payment.METHOD_CARD,
+            "payment_date": date.today().isoformat(),
+            "reference": "AUTH-1234",
+        }
+        resp_post = self.client.post(reverse("billing:record_payment", kwargs={"invoice_id": self.inv2.id}), post_data)
+        self.assertRedirects(resp_post, reverse("billing:detail", kwargs={"invoice_id": self.inv2.id}))
+
+        self.inv2.refresh_from_db()
+        self.assertEqual(self.inv2.balance_due, Decimal("100.00"))
+        self.assertEqual(self.inv2.amount_paid, Decimal("50.00"))
+
+    def test_confirm_invoice_view(self):
+        """Verifies staff can confirm DRAFT invoice."""
+        self.client.force_login(self.staff_user)
+        resp = self.client.post(reverse("billing:confirm", kwargs={"invoice_id": self.inv1.id}))
+        self.assertRedirects(resp, reverse("billing:detail", kwargs={"invoice_id": self.inv1.id}))
+
+        self.inv1.refresh_from_db()
+        self.assertEqual(self.inv1.status, Invoice.STATUS_CONFIRMED)
+
+    def test_payment_history_view(self):
+        """Verifies payment history audit view renders recorded payments and filters."""
+        Payment.objects.create(
+            invoice=self.inv2,
+            amount=Decimal("50.00"),
+            method=Payment.METHOD_UPI,
+            recorded_by=self.staff_user,
+        )
+
+        self.client.force_login(self.staff_user)
+        resp = self.client.get(reverse("billing:payment_history"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.inv2.invoice_number)
+        self.assertContains(resp, "50.00")
+
+    def test_invoice_outstanding_view(self):
+        """Verifies outstanding invoices view lists unpaid invoices."""
+        self.client.force_login(self.staff_user)
+        resp = self.client.get(reverse("billing:outstanding"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.inv2.invoice_number)
+
+    def test_invoice_pdf_view_renders_successfully(self):
+        """Verifies invoice PDF endpoint returns either application/pdf or print-friendly HTML."""
+        self.client.force_login(self.staff_user)
+        resp = self.client.get(reverse("billing:pdf", kwargs={"invoice_id": self.inv1.id}))
+        self.assertEqual(resp.status_code, 200)
+        content_type = resp.headers.get("Content-Type", "")
+        self.assertTrue("application/pdf" in content_type or "text/html" in content_type)

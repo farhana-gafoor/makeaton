@@ -8,3 +8,4 @@
 # Keep dependencies minimal to ensure fast installation during the hackathon.
 
 django>=5.1,<6.2
+xhtml2pdf>=0.2.16

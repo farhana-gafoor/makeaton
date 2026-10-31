@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Record Payment - {{ invoice.invoice_number }} - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+
+      <!-- Breadcrumbs -->
+      <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0">
+          <li class="breadcrumb-item"><a href="{% url 'billing:list' %}" class="text-decoration-none">Invoices</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'billing:detail' invoice.id %}" class="text-decoration-none">{{ invoice.invoice_number }}</a></li>
+          <li class="breadcrumb-item active" aria-current="page">Record Payment</li>
+        </ol>
+      </nav>
+
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-primary text-white py-3">
+          <h4 class="card-title fw-bold mb-0">Record Payment</h4>
+          <span class="small opacity-75">Apply receipt against Invoice {{ invoice.invoice_number }}</span>
+        </div>
+
+        <div class="card-body p-4">
+          <!-- Financial Snapshot Banner -->
+          <div class="alert alert-light border d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <div class="text-muted small">Customer</div>
+              <div class="fw-semibold">{{ invoice.subscription.customer.email }}</div>
+            </div>
+            <div>
+              <div class="text-muted small">Total Due</div>
+              <div class="fw-bold">${{ invoice.total }}</div>
+            </div>
+            <div>
+              <div class="text-muted small">Current Balance</div>
+              <div class="fw-bold fs-5 text-danger">${{ invoice.balance_due }}</div>
+            </div>
+          </div>
+
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+              {% for error in form.non_field_errors %}
+                <div>{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <form method="post" novalidate>
+            {% csrf_token %}
+
+            <!-- Payment Amount Field -->
+            <div class="mb-3">
+              <label for="{{ form.amount.id_for_label }}" class="form-label fw-bold">Payment Amount ($)</label>
+              {{ form.amount }}
+              <div class="form-text text-muted">{{ form.amount.help_text }}</div>
+              {% if form.amount.errors %}
+                <div class="text-danger small mt-1">
+                  {% for error in form.amount.errors %}{{ error }}{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Payment Method Field -->
+            <div class="mb-3">
+              <label for="{{ form.method.id_for_label }}" class="form-label fw-bold">Payment Method</label>
+              {{ form.method }}
+              {% if form.method.errors %}
+                <div class="text-danger small mt-1">
+                  {% for error in form.method.errors %}{{ error }}{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Payment Date Field -->
+            <div class="mb-3">
+              <label for="{{ form.payment_date.id_for_label }}" class="form-label fw-bold">Payment Date</label>
+              {{ form.payment_date }}
+              {% if form.payment_date.errors %}
+                <div class="text-danger small mt-1">
+                  {% for error in form.payment_date.errors %}{{ error }}{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Reference / Notes Field -->
+            <div class="mb-4">
+              <label for="{{ form.reference.id_for_label }}" class="form-label fw-bold">Reference / Transaction ID</label>
+              {{ form.reference }}
+              <div class="form-text text-muted">Optional gateway tracking code or check identifier.</div>
+              {% if form.reference.errors %}
+                <div class="text-danger small mt-1">
+                  {% for error in form.reference.errors %}{{ error }}{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <a href="{% url 'billing:detail' invoice.id %}" class="btn btn-outline-secondary">
+                Cancel
+              </a>
+              <button type="submit" class="btn btn-success px-4">
+                Confirm & Record Payment
+              </button>
+            </div>
+          </form>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

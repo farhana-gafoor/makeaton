@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="fw-bold mb-1">Invoices</h2>
+      <p class="text-muted mb-0">
+        {% if user.role == 'customer' %}
+          Review itemized invoices, balance due, and payment receipts
+        {% else %}
+          Manage organization invoices, payments, and overdue billing
+        {% endif %}
+      </p>
+    </div>
+    {% if user.role != 'customer' %}
+      <div class="d-flex gap-2">
+        <a href="{% url 'billing:outstanding' %}" class="btn btn-outline-danger btn-sm">
+          Outstanding / Overdue &rarr;
+        </a>
+        <a href="{% url 'billing:payment_history' %}" class="btn btn-outline-secondary btn-sm">
+          Payment History
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Invoice #</th>
+            {% if user.role != 'customer' %}<th>Customer</th>{% endif %}
+            <th>Period</th>
+            <th>Status</th>
+            <th>Due Date</th>
+            <th>Total</th>
+            <th>Balance Due</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in invoices %}
+            <tr {% if inv.is_overdue %}class="table-danger"{% endif %}>
+              <td class="fw-bold">
+                <a href="{% url 'billing:detail' inv.id %}" class="text-decoration-none">
+                  {{ inv.invoice_number }}
+                </a>
+              </td>
+              {% if user.role != 'customer' %}
+                <td>{{ inv.subscription.customer.email }}</td>
+              {% endif %}
+              <td class="small">{{ inv.period_start|date:"M d" }} &ndash; {{ inv.period_end|date:"M d, Y" }}</td>
+              <td>
+                <span class="badge {% if inv.status == 'PAID' or inv.status == 'Paid' %}bg-success{% elif inv.status == 'CONFIRMED' or inv.status == 'Confirmed' %}bg-primary{% else %}bg-secondary{% endif %}">
+                  {{ inv.status }}
+                </span>
+                {% if inv.is_overdue %}
+                  <span class="badge bg-danger">Overdue</span>
+                {% endif %}
+              </td>
+              <td>{{ inv.due_date|date:"M d, Y" }}</td>
+              <td>${{ inv.total }}</td>
+              <td class="fw-bold {% if inv.balance_due > 0 %}text-danger{% else %}text-success{% endif %}">
+                ${{ inv.balance_due }}
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a href="{% url 'billing:detail' inv.id %}" class="btn btn-outline-primary">View</a>
+                  {% if user.role != 'customer' and inv.balance_due > 0 %}
+                    <a href="{% url 'billing:record_payment' inv.id %}" class="btn btn-outline-success">Pay</a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center text-muted py-5">
+                No invoices found.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

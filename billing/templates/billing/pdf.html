@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice {{ invoice.invoice_number }}</title>
+  <style>
+    @page {
+      size: a4 portrait;
+      margin: 1.5cm;
+      @bottom-right {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 9pt;
+        color: #777777;
+      }
+    }
+
+    body {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 10pt;
+      line-height: 1.4;
+      color: #333333;
+      margin: 0;
+      padding: 0;
+    }
+
+    .no-print {
+      margin-bottom: 20px;
+    }
+
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    .header-table {
+      width: 100%;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #2b50aa;
+      padding-bottom: 10px;
+    }
+
+    .company-name {
+      font-size: 22pt;
+      font-weight: bold;
+      color: #2b50aa;
+      margin: 0;
+    }
+
+    .company-sub {
+      font-size: 9pt;
+      color: #666666;
+    }
+
+    .invoice-title {
+      font-size: 20pt;
+      font-weight: bold;
+      text-align: right;
+      color: #222222;
+      margin: 0;
+    }
+
+    .meta-table {
+      width: 100%;
+      margin-bottom: 25px;
+    }
+
+    .meta-table td {
+      vertical-align: top;
+    }
+
+    .section-title {
+      font-size: 9pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      color: #888888;
+      margin-bottom: 4px;
+    }
+
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 25px;
+    }
+
+    .items-table th {
+      background-color: #f2f4f8;
+      color: #333333;
+      font-size: 9pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      padding: 8px 10px;
+      border-bottom: 1px solid #cccccc;
+      text-align: left;
+    }
+
+    .items-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #eeeeee;
+      font-size: 9.5pt;
+    }
+
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+
+    .totals-table {
+      width: 45%;
+      margin-left: auto;
+      border-collapse: collapse;
+      margin-bottom: 30px;
+    }
+
+    .totals-table td {
+      padding: 5px 8px;
+      font-size: 9.5pt;
+    }
+
+    .totals-table tr.total-row td {
+      font-size: 12pt;
+      font-weight: bold;
+      color: #2b50aa;
+      border-top: 1px solid #cccccc;
+      border-bottom: 2px solid #2b50aa;
+    }
+
+    .totals-table tr.balance-row td {
+      font-size: 11pt;
+      font-weight: bold;
+      color: #c92a2a;
+    }
+
+    .payments-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    .payments-table th {
+      background-color: #f9f9f9;
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      padding: 6px 8px;
+      border-bottom: 1px solid #dddddd;
+      text-align: left;
+    }
+
+    .payments-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #eeeeee;
+      font-size: 8.5pt;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 9pt;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .badge-paid { background-color: #d3f9d8; color: #2b8a3e; }
+    .badge-confirmed { background-color: #dbe4ff; color: #364fc7; }
+    .badge-draft { background-color: #f1f3f5; color: #495057; }
+
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #2b50aa;
+      color: #ffffff;
+      text-decoration: none;
+      border-radius: 4px;
+      font-size: 10pt;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  {% if fallback_print %}
+    <div class="no-print" style="padding: 12px; background-color: #fff3bf; border-bottom: 1px solid #ffe066; text-align: center;">
+      <span><strong>Print-Friendly Invoice View.</strong> Click the button below or press Ctrl+P / Cmd+P to save as PDF.</span>
+      <button class="btn" style="margin-left: 15px;" onclick="window.print()">Print / Save as PDF</button>
+      <a href="{% url 'billing:detail' invoice.id %}" style="margin-left: 15px; color: #333;">&larr; Back to Invoice</a>
+    </div>
+  {% endif %}
+
+  <!-- Header -->
+  <table class="header-table">
+    <tr>
+      <td style="vertical-align: middle;">
+        <div class="company-name">BrightLoop</div>
+        <div class="company-sub">Subscription & Recurring Billing Engine</div>
+        <div class="company-sub">billing@brightloop.local</div>
+      </td>
+      <td style="vertical-align: middle; text-align: right;">
+        <div class="invoice-title">INVOICE</div>
+        <div style="font-size: 11pt; font-weight: bold; margin-top: 4px;">{{ invoice.invoice_number }}</div>
+        <div style="margin-top: 6px;">
+          <span class="badge {% if invoice.status == 'PAID' or invoice.status == 'Paid' %}badge-paid{% elif invoice.status == 'CONFIRMED' or invoice.status == 'Confirmed' %}badge-confirmed{% else %}badge-draft{% endif %}">
+            {{ invoice.status }}
+          </span>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Billed To & Dates -->
+  <table class="meta-table">
+    <tr>
+      <td style="width: 55%;">
+        <div class="section-title">Billed To</div>
+        <div style="font-weight: bold; font-size: 11pt;">{{ invoice.subscription.customer.get_full_name|default:invoice.subscription.customer.email }}</div>
+        <div>{{ invoice.subscription.customer.email }}</div>
+        <div style="color: #666; font-size: 9pt; margin-top: 4px;">
+          Subscription: {{ invoice.subscription.number }} ({{ invoice.subscription.plan.name }})
+        </div>
+      </td>
+      <td style="width: 45%; text-align: right;">
+        <div class="section-title">Invoice Details</div>
+        <div><strong>Issue Date:</strong> {{ invoice.issue_date|date:"M d, Y" }}</div>
+        <div><strong>Due Date:</strong> {{ invoice.due_date|date:"M d, Y" }}</div>
+        <div><strong>Billing Cycle:</strong> {{ invoice.period_start|date:"M d" }} &ndash; {{ invoice.period_end|date:"M d, Y" }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Line Items -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width: 40%;">Description</th>
+        <th class="text-center" style="width: 10%;">Qty</th>
+        <th class="text-right" style="width: 15%;">Unit Price</th>
+        <th class="text-right" style="width: 15%;">Tax Rate</th>
+        <th class="text-right" style="width: 20%;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in invoice.lines.all %}
+        <tr>
+          <td>{{ line.description }}</td>
+          <td class="text-center">{{ line.quantity }}</td>
+          <td class="text-right">${{ line.unit_price }}</td>
+          <td class="text-right">{{ line.tax_rate }}%</td>
+          <td class="text-right">${{ line.line_subtotal }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td>{{ invoice.subscription.plan.name }} (Recurring Subscription Charge)</td>
+          <td class="text-center">1</td>
+          <td class="text-right">${{ invoice.subtotal }}</td>
+          <td class="text-right">0.00%</td>
+          <td class="text-right">${{ invoice.subtotal }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <table class="totals-table">
+    <tr>
+      <td><strong>Subtotal:</strong></td>
+      <td class="text-right">${{ invoice.subtotal }}</td>
+    </tr>
+    {% if invoice.discount_total > 0 %}
+      <tr style="color: #2b8a3e;">
+        <td><strong>Discount:</strong></td>
+        <td class="text-right">-${{ invoice.discount_total }}</td>
+      </tr>
+    {% endif %}
+    <tr>
+      <td><strong>Tax Total:</strong></td>
+      <td class="text-right">${{ invoice.tax_total }}</td>
+    </tr>
+    <tr class="total-row">
+      <td><strong>Total Amount:</strong></td>
+      <td class="text-right">${{ invoice.total }}</td>
+    </tr>
+    <tr>
+      <td>Amount Paid:</td>
+      <td class="text-right" style="color: #2b8a3e;">${{ invoice.amount_paid }}</td>
+    </tr>
+    <tr class="balance-row">
+      <td><strong>Balance Due:</strong></td>
+      <td class="text-right">${{ invoice.balance_due }}</td>
+    </tr>
+  </table>
+
+  <!-- Payment History -->
+  {% if invoice.payments.all %}
+    <div style="margin-top: 20px;">
+      <div class="section-title">Payment Receipts</div>
+      <table class="payments-table">
+        <thead>
+          <tr>
+            <th>Receipt #</th>
+            <th>Method</th>
+            <th>Date</th>
+            <th>Reference</th>
+            <th class="text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pmt in invoice.payments.all %}
+            <tr>
+              <td>#{{ pmt.id }}</td>
+              <td>{{ pmt.get_method_display }}</td>
+              <td>{{ pmt.payment_date|date:"M d, Y" }}</td>
+              <td>{{ pmt.reference|default:"-" }}</td>
+              <td class="text-right" style="font-weight: bold; color: #2b8a3e;">+${{ pmt.amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+</body>
+</html>

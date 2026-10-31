@@ -406,13 +406,14 @@ class Invoice(models.Model):
     def amount_paid(self) -> Decimal:
         """Sum of all settled payments recorded against this invoice."""
         aggregated = self.payments.aggregate(total=Sum("amount"))
-        return aggregated["total"] or Decimal("0.00")
+        paid = aggregated["total"] or Decimal("0.00")
+        return Decimal(str(paid)).quantize(Decimal("0.01"))
 
     @property
     def balance_due(self) -> Decimal:
         """Remaining outstanding amount on this invoice (total minus amount_paid)."""
         balance = self.total - self.amount_paid
-        return max(Decimal("0.00"), balance)
+        return max(Decimal("0.00"), balance).quantize(Decimal("0.01"))
 
     @property
     def is_overdue(self) -> bool:

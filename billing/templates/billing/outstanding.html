@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Outstanding & Overdue Invoices - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="fw-bold mb-1">Outstanding & Overdue Invoices</h2>
+      <p class="text-muted mb-0">Monitor unpaid accounts, overdue statements, and collection priorities</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'billing:payment_history' %}" class="btn btn-outline-secondary btn-sm">
+        Payment History
+      </a>
+      <a href="{% url 'billing:list' %}" class="btn btn-outline-primary btn-sm">
+        All Invoices
+      </a>
+    </div>
+  </div>
+
+  <!-- Filter Pills -->
+  <div class="mb-3">
+    <div class="btn-group" role="group">
+      <a href="{% url 'billing:outstanding' %}?filter=all" class="btn btn-sm {% if filter_mode == 'all' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+        All Unpaid
+      </a>
+      <a href="{% url 'billing:outstanding' %}?filter=overdue" class="btn btn-sm {% if filter_mode == 'overdue' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+        Overdue Only
+      </a>
+      <a href="{% url 'billing:outstanding' %}?filter=outstanding" class="btn btn-sm {% if filter_mode == 'outstanding' %}btn-warning{% else %}btn-outline-warning text-dark{% endif %}">
+        Confirmed Outstanding
+      </a>
+    </div>
+  </div>
+
+  <!-- Invoices Table -->
+  <div class="card shadow-sm border-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Invoice #</th>
+            <th>Customer</th>
+            <th>Billing Period</th>
+            <th>Due Date</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Balance Due</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in invoices %}
+            <tr {% if inv.is_overdue %}class="table-danger"{% endif %}>
+              <td class="fw-bold">
+                <a href="{% url 'billing:detail' inv.id %}" class="text-decoration-none">
+                  {{ inv.invoice_number }}
+                </a>
+              </td>
+              <td>{{ inv.subscription.customer.email }}</td>
+              <td class="small">{{ inv.period_start|date:"M d" }} &ndash; {{ inv.period_end|date:"M d, Y" }}</td>
+              <td class="{% if inv.is_overdue %}text-danger fw-bold{% endif %}">
+                {{ inv.due_date|date:"M d, Y" }}
+              </td>
+              <td>
+                <span class="badge {% if inv.status == 'PAID' or inv.status == 'Paid' %}bg-success{% elif inv.status == 'CONFIRMED' or inv.status == 'Confirmed' %}bg-primary{% else %}bg-secondary{% endif %}">
+                  {{ inv.status }}
+                </span>
+                {% if inv.is_overdue %}
+                  <span class="badge bg-danger">Overdue</span>
+                {% endif %}
+              </td>
+              <td>${{ inv.total }}</td>
+              <td class="fw-bold {% if inv.balance_due > 0 %}text-danger{% else %}text-success{% endif %}">
+                ${{ inv.balance_due }}
+              </td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm">
+                  <a href="{% url 'billing:detail' inv.id %}" class="btn btn-outline-primary">Inspect</a>
+                  {% if user.role != 'customer' and inv.balance_due > 0 %}
+                    <a href="{% url 'billing:record_payment' inv.id %}" class="btn btn-outline-success">Record Payment</a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center text-muted py-5">
+                No invoices found in this view. All accounts are up-to-date!
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
