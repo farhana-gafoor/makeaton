@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice.invoice_number }} - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <!-- Action Bar (Hidden on print) -->
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 no-print gap-2">
+    <div>
+      <a href="{% url 'billing:list' %}" class="small text-decoration-none">&larr; Back to Invoices</a>
+      <h2 class="fw-bold mb-0 mt-1">{{ invoice.invoice_number }}</h2>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <!-- Status Badge -->
+      <span class="badge fs-6 px-3 py-2 {% if invoice.status == 'PAID' or invoice.status == 'Paid' %}bg-success{% elif invoice.status == 'CONFIRMED' or invoice.status == 'Confirmed' %}bg-primary{% else %}bg-secondary{% endif %}">
+        {{ invoice.status }}
+      </span>
+
+      {% if invoice.is_overdue %}
+        <span class="badge bg-danger fs-6 px-3 py-2">OVERDUE</span>
+      {% endif %}
+
+      <!-- Staff Actions -->
+      {% if user.role != 'customer' %}
+        {% if invoice.status == 'DRAFT' or invoice.status == 'Draft' %}
+          <form method="post" action="{% url 'billing:confirm' invoice.id %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary">
+              Confirm Invoice
+            </button>
+          </form>
+        {% endif %}
+
+        {% if invoice.balance_due > 0 %}
+          <a href="{% url 'billing:record_payment' invoice.id %}" class="btn btn-success">
+            Record Payment
+          </a>
+        {% endif %}
+      {% endif %}
+
+      <!-- PDF Download Button -->
+      <a href="{% url 'billing:pdf' invoice.id %}" class="btn btn-outline-danger">
+        <svg class="bi me-1" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+          <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+        </svg>
+        Download PDF
+      </a>
+
+      <!-- Print Button -->
+      <button class="btn btn-outline-secondary" onclick="window.print()">
+        <svg class="bi me-1" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z"/>
+          <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z"/>
+        </svg>
+        Print
+      </button>
+    </div>
+  </div>
+
+  <!-- Invoice Sheet (Print optimized) -->
+  <div class="card shadow-sm border p-4">
+    <div class="row mb-4">
+      <div class="col-sm-6">
+        <h3 class="fw-bold text-primary mb-1">BrightLoop</h3>
+        <p class="text-muted small mb-0">Subscription & Recurring Billing Engine</p>
+        <p class="text-muted small">billing@brightloop.local</p>
+      </div>
+      <div class="col-sm-6 text-sm-end">
+        <h4 class="fw-bold mb-1">INVOICE</h4>
+        <p class="mb-0"><strong>Invoice #:</strong> {{ invoice.invoice_number }}</p>
+        <p class="mb-0"><strong>Billing Period:</strong> {{ invoice.period_start|date:"M d, Y" }} &ndash; {{ invoice.period_end|date:"M d, Y" }}</p>
+        <p class="mb-0"><strong>Issue Date:</strong> {{ invoice.issue_date|date:"M d, Y" }}</p>
+        <p class="mb-0"><strong>Due Date:</strong> {{ invoice.due_date|date:"M d, Y" }}</p>
+      </div>
+    </div>
+
+    <div class="row mb-4">
+      <div class="col-sm-6">
+        <h6 class="text-muted text-uppercase small fw-bold">Billed To:</h6>
+        <p class="mb-0 fw-bold">{{ invoice.subscription.customer.get_full_name|default:invoice.subscription.customer.email }}</p>
+        <p class="mb-0 text-muted small">{{ invoice.subscription.customer.email }}</p>
+        <p class="mb-0 text-muted small">Subscription: {{ invoice.subscription.number }} ({{ invoice.subscription.plan.name }})</p>
+      </div>
+    </div>
+
+    <!-- Line items table -->
+    <div class="table-responsive mb-4">
+      <table class="table table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Description</th>
+            <th class="text-center" style="width: 100px;">Qty</th>
+            <th class="text-end" style="width: 120px;">Unit Price</th>
+            <th class="text-end" style="width: 100px;">Tax Rate</th>
+            <th class="text-end" style="width: 140px;">Subtotal</th>
+            <th class="text-end" style="width: 120px;">Tax</th>
+            <th class="text-end" style="width: 140px;">Line Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in invoice.lines.all %}
+            <tr>
+              <td>{{ line.description }}</td>
+              <td class="text-center">{{ line.quantity }}</td>
+              <td class="text-end">${{ line.unit_price }}</td>
+              <td class="text-end">{{ line.tax_rate }}%</td>
+              <td class="text-end">${{ line.line_subtotal }}</td>
+              <td class="text-end">${{ line.line_tax }}</td>
+              <td class="text-end fw-semibold">${{ line.line_total }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td>{{ invoice.subscription.plan.name }} (Recurring billing charge)</td>
+              <td class="text-center">1</td>
+              <td class="text-end">${{ invoice.subtotal }}</td>
+              <td class="text-end">0.00%</td>
+              <td class="text-end">${{ invoice.subtotal }}</td>
+              <td class="text-end">$0.00</td>
+              <td class="text-end fw-semibold">${{ invoice.subtotal }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Totals Breakdown -->
+    <div class="row justify-content-end mb-4">
+      <div class="col-sm-5">
+        <table class="table table-sm table-borderless">
+          <tr>
+            <td><strong>Subtotal:</strong></td>
+            <td class="text-end">${{ invoice.subtotal }}</td>
+          </tr>
+          {% if invoice.discount_total > 0 %}
+            <tr class="text-success">
+              <td><strong>Discount ({{ invoice.discount.code|default:"Applied" }}):</strong></td>
+              <td class="text-end">-${{ invoice.discount_total }}</td>
+            </tr>
+          {% endif %}
+          <tr>
+            <td><strong>Tax Total:</strong></td>
+            <td class="text-end">${{ invoice.tax_total }}</td>
+          </tr>
+          <tr class="border-top fs-5">
+            <td><strong>Total:</strong></td>
+            <td class="text-end fw-bold text-primary">${{ invoice.total }}</td>
+          </tr>
+          <tr>
+            <td><strong>Amount Paid:</strong></td>
+            <td class="text-end text-success">${{ invoice.amount_paid }}</td>
+          </tr>
+          <tr class="border-top">
+            <td><strong>Balance Due:</strong></td>
+            <td class="text-end fw-bold {% if invoice.balance_due > 0 %}text-danger fs-5{% else %}text-success{% endif %}">
+              ${{ invoice.balance_due }}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Recorded Payments History -->
+    <div class="border-top pt-3">
+      <h6 class="fw-bold mb-2">Payment Receipts</h6>
+      {% if invoice.payments.all %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped">
+            <thead>
+              <tr>
+                <th>Receipt #</th>
+                <th>Method</th>
+                <th>Date</th>
+                <th>Reference</th>
+                <th>Recorded By</th>
+                <th class="text-end">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pmt in invoice.payments.all %}
+                <tr>
+                  <td>#{{ pmt.id }}</td>
+                  <td>{{ pmt.get_method_display }}</td>
+                  <td>{{ pmt.payment_date|date:"M d, Y" }}</td>
+                  <td>{{ pmt.reference|default:"-" }}</td>
+                  <td class="text-muted small">{{ pmt.recorded_by.email|default:"System" }}</td>
+                  <td class="text-end text-success font-monospace fw-bold">+${{ pmt.amount }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-muted small mb-0">No payments recorded against this invoice yet.</p>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}
