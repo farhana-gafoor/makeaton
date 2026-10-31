@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Plans - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="text-center mb-5">
+    <h2 class="fw-bold">Available Subscription Plans</h2>
+    <p class="text-muted">Choose the recurring billing cycle and feature tier that fits your needs.</p>
+  </div>
+
+  <div class="row row-cols-1 row-cols-md-3 g-4 justify-content-center">
+    {% for plan in plans %}
+      <div class="col">
+        <div class="card h-100 shadow-sm border-top-primary">
+          <div class="card-body p-4 text-center">
+            <h5 class="card-title fw-bold">{{ plan.name }}</h5>
+            <div class="my-3">
+              <span class="display-5 fw-bold text-primary-brand">${{ plan.price }}</span>
+              <span class="text-muted">/ {{ plan.get_billing_period_display }}</span>
+            </div>
+            <ul class="list-unstyled text-muted small my-4 text-start">
+              <li class="mb-2">&check; Min. Quantity: {{ plan.min_quantity }}</li>
+              <li class="mb-2">&check; Renewable: {{ plan.renewable|yesno:"Yes,No" }}</li>
+              <li class="mb-2">&check; Pausable: {{ plan.pausable|yesno:"Yes,No" }}</li>
+              <li class="mb-2">&check; Cancel anytime: {{ plan.closable|yesno:"Yes,No" }}</li>
+            </ul>
+            {% if user.is_authenticated and user.role == 'customer' %}
+              <button class="btn btn-primary w-100 py-2" disabled>Subscribe (Feature Stub)</button>
+            {% elif not user.is_authenticated %}
+              <a href="{% url 'accounts:signup' %}" class="btn btn-outline-primary w-100 py-2">Sign Up to Subscribe</a>
+            {% else %}
+              <span class="badge bg-secondary p-2 d-block">Admin/Staff Preview</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12 text-center text-muted py-5">
+        <p>No plans currently configured in catalog. Run <code>python manage.py seed_data</code> to populate sample plans.</p>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,151 @@
+/*
+static/css/style.css
+====================
+Purpose:
+    Core stylesheet for BrightLoop.
+    Defines CSS variables for unified brand colors, typography, role badges,
+    and a clean print stylesheet for invoices and statements.
+*/
+
+:root {
+    /* Brand Primary Color Palette */
+    --primary-color: #2563eb;       /* Royal Blue */
+    --primary-hover: #1d4ed8;       /* Darker Blue */
+    --primary-light: #eff6ff;       /* Very Light Blue */
+    --secondary-color: #475569;     /* Slate */
+    --accent-color: #0ea5e9;        /* Sky Blue */
+    --success-color: #10b981;       /* Emerald */
+    --warning-color: #f59e0b;       /* Amber */
+    --danger-color: #ef4444;        /* Crimson */
+    
+    /* Backgrounds & Borders */
+    --body-bg: #f8fafc;
+    --card-bg: #ffffff;
+    --border-color: #e2e8f0;
+}
+
+body {
+    background-color: var(--body-bg);
+    color: #1e293b;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+/* Custom Primary Button Styling using brand variable */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover, .btn-primary:focus {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.text-primary-brand {
+    color: var(--primary-color) !important;
+}
+
+.bg-primary-brand {
+    background-color: var(--primary-color) !important;
+}
+
+/* Navbar branding */
+.navbar-brand-logo {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    font-size: 1.35rem;
+}
+
+/* Card aesthetics */
+.card {
+    border-color: var(--border-color);
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Role Badges */
+.badge-role-admin {
+    background-color: #dc2626;
+    color: #ffffff;
+}
+
+.badge-role-staff {
+    background-color: #7c3aed;
+    color: #ffffff;
+}
+
+.badge-role-customer {
+    background-color: #0284c7;
+    color: #ffffff;
+}
+
+/* Stat Cards for Finance Dashboard */
+.stat-card {
+    border-left: 4px solid var(--primary-color);
+}
+.stat-card-success {
+    border-left: 4px solid var(--success-color);
+}
+.stat-card-warning {
+    border-left: 4px solid var(--warning-color);
+}
+.stat-card-danger {
+    border-left: 4px solid var(--danger-color);
+}
+
+/* ==============================================================================
+   PRINT STYLESHEET
+   ==============================================================================
+   Hides navigation, footers, action buttons, and flashes when printing an invoice.
+   Ensures invoices look crisp, professional, and page-optimized on paper or PDF.
+*/
+@media print {
+    /* Hide navigational and decorative UI elements */
+    header,
+    nav,
+    footer,
+    .no-print,
+    .btn,
+    .alert,
+    .dropdown {
+        display: none !important;
+    }
+
+    body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        font-size: 12pt;
+    }
+
+    main {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .table {
+        border-color: #000000 !important;
+    }
+
+    /* Print watermark or header */
+    .print-only {
+        display: block !important;
+    }
+}
+
+@media screen {
+    .print-only {
+        display: none !important;
+    }
+}

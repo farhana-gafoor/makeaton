@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Subscriptions - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="fw-bold mb-1">Subscriptions</h2>
+      <p class="text-muted mb-0">
+        {% if user.role == 'customer' %}
+          Manage your recurring subscriptions and billing schedules
+        {% else %}
+          Manage customer subscription contracts and status transitions
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Subscription #</th>
+            {% if user.role != 'customer' %}<th>Customer</th>{% endif %}
+            <th>Plan</th>
+            <th>Status</th>
+            <th>Start Date</th>
+            <th>Next Invoice</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sub in subscriptions %}
+            <tr>
+              <td class="fw-semibold">
+                <a href="{% url 'subscriptions:detail' sub.id %}" class="text-decoration-none">
+                  {{ sub.number }}
+                </a>
+              </td>
+              {% if user.role != 'customer' %}
+                <td>{{ sub.customer.email }}</td>
+              {% endif %}
+              <td>{{ sub.plan.name }} (${{ sub.plan.price }})</td>
+              <td>
+                <span class="badge {% if sub.status == 'Active' %}bg-success{% elif sub.status == 'Draft' %}bg-secondary{% elif sub.status == 'Quotation' %}bg-info text-dark{% elif sub.status == 'Confirmed' %}bg-primary{% else %}bg-dark{% endif %}">
+                  {{ sub.status }}
+                </span>
+              </td>
+              <td>{{ sub.start_date|date:"M d, Y" }}</td>
+              <td>{{ sub.next_invoice_date|default:"None" }}</td>
+              <td class="text-end">
+                <a href="{% url 'subscriptions:detail' sub.id %}" class="btn btn-sm btn-outline-primary">Details</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-5">
+                No subscriptions found. Run <code>python manage.py seed_data</code> to generate demo subscriptions.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

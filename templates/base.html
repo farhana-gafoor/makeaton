@@ -1,0 +1,198 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>{% block title %}BrightLoop - Subscription Management{% endblock %}</title>
+
+  <!-- Local Bootstrap 5 CSS (Offline ready, zero CDN dependencies) -->
+  <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
+  
+  <!-- Custom Project Stylesheet (Brand CSS Variables, Badges, and Print Rules) -->
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+  <!-- ========================================================================
+       TOP NAVIGATION BAR
+       Responsive Bootstrap 5 Navbar whose links adapt based on request.user.role
+       ======================================================================== -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm no-print">
+    <div class="container-fluid px-4">
+      
+      <!-- Brand Logo / Title -->
+      <a class="navbar-brand navbar-brand-logo text-white d-flex align-items-center" href="{% url 'accounts:home' %}">
+        <span class="badge bg-primary-brand me-2 px-2 py-1">BL</span>
+        BrightLoop
+      </a>
+
+      <!-- Mobile Hamburger Toggle -->
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent"
+              aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarContent">
+        <!-- Left / Center Links (Role-Aware) -->
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'accounts:home' %}">Home</a>
+          </li>
+
+          {% if not user.is_authenticated %}
+            <!-- Anonymous Visitor Navigation -->
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'catalog:plan_list' %}">Plans</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'catalog:product_list' %}">Products</a>
+            </li>
+
+          {% elif user.role == 'customer' %}
+            <!-- Customer Role Navigation (Strictly self-service) -->
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'subscriptions:list' %}">My Subscriptions</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'billing:list' %}">My Invoices</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'catalog:plan_list' %}">Explore Plans</a>
+            </li>
+
+          {% elif user.role == 'staff' %}
+            <!-- Staff Role Navigation (Operational Management) -->
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" id="catalogDropdown" role="button" data-bs-toggle="dropdown">
+                Catalog
+              </a>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'catalog:plan_list' %}">Plans</a></li>
+                <li><a class="dropdown-item" href="{% url 'catalog:product_list' %}">Products</a></li>
+              </ul>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'subscriptions:list' %}">Subscriptions</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'billing:list' %}">Invoices</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'dashboard:finance' %}">Finance Dashboard</a>
+            </li>
+
+          {% elif user.is_role_admin %}
+            <!-- Admin Role Navigation (Full System Access) -->
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" id="adminCatalogDropdown" role="button" data-bs-toggle="dropdown">
+                Catalog
+              </a>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'catalog:plan_list' %}">Plans</a></li>
+                <li><a class="dropdown-item" href="{% url 'catalog:product_list' %}">Products</a></li>
+              </ul>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'subscriptions:list' %}">Subscriptions</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'billing:list' %}">Invoices</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'dashboard:finance' %}">Finance Dashboard</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="{% url 'accounts:staff_create' %}">Create Staff</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link text-warning" href="/admin/" target="_blank">Django Admin &nearr;</a>
+            </li>
+          {% endif %}
+        </ul>
+
+        <!-- Right Side: User Menu & Authentication Actions -->
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
+          {% if user.is_authenticated %}
+            <!-- User Profile Dropdown -->
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="userMenuDropdown"
+                 role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="me-2 text-light">{{ user.email }}</span>
+                <!-- Role Badge -->
+                <span class="badge badge-role-{{ user.role }} text-uppercase" style="font-size: 0.7rem;">
+                  {{ user.role }}
+                </span>
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="userMenuDropdown">
+                <li class="dropdown-header">Signed in as <strong>{{ user.get_full_name|default:user.email }}</strong></li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <a class="dropdown-item" href="{% url 'accounts:password_reset' %}">Reset Password</a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <!-- Logout Form (POST-compatible for Django security) -->
+                  <form method="post" action="{% url 'accounts:logout' %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="dropdown-item text-danger">Logout</button>
+                  </form>
+                </li>
+              </ul>
+            </li>
+          {% else %}
+            <!-- Anonymous Links -->
+            <li class="nav-item me-2">
+              <a class="btn btn-outline-light btn-sm" href="{% url 'accounts:login' %}">Log In</a>
+            </li>
+            <li class="nav-item">
+              <a class="btn btn-primary btn-sm" href="{% url 'accounts:signup' %}">Sign Up</a>
+            </li>
+          {% endif %}
+        </ul>
+
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========================================================================
+       DJANGO MESSAGES FLASH DISPLAY
+       Displays info/success/warning/error alerts dynamically
+       ======================================================================== -->
+  <div class="container-fluid px-4 mt-3 no-print">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags %}{{ message.tags }}{% else %}primary{% endif %} alert-dismissible fade show shadow-sm" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <!-- ========================================================================
+       MAIN CONTENT CONTAINER
+       ======================================================================== -->
+  <main class="container-fluid px-4 py-3">
+    {% block content %}
+    {% endblock %}
+  </main>
+
+  <!-- ========================================================================
+       FOOTER
+       ======================================================================== -->
+  <footer class="bg-white border-top py-3 mt-auto text-center text-muted no-print">
+    <div class="container-fluid">
+      <small>&copy; {% now "Y" %} BrightLoop Subscription Management System. Built for Hackathon.</small>
+    </div>
+  </footer>
+
+  <!-- Local Bootstrap 5 JS Bundle (Offline ready, includes Popper) -->
+  <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

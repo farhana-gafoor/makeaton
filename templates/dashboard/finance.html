@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Finance & Analytics Dashboard - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="fw-bold mb-1">Finance & Analytics Dashboard</h2>
+      <p class="text-muted mb-0">High-performance financial aggregates (Active Subscriptions, Revenue, Outstanding Balance, Overdue)</p>
+    </div>
+    <span class="badge bg-dark px-3 py-2 text-uppercase">Internal Staff / Admin</span>
+  </div>
+
+  <!-- Performance Architecture Comment for Beginners -->
+  <div class="alert alert-info border-0 shadow-sm mb-4">
+    <div class="d-flex align-items-center">
+      <svg class="bi me-2 flex-shrink-0" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+        <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+      </svg>
+      <div>
+        <strong>Performance Engineering Note for Developers:</strong>
+        This dashboard uses database-level <code>aggregate(Sum(...))</code> queries,
+        <code>select_related('subscription__customer', 'subscription__plan')</code> to eliminate N+1 queries,
+        and Django's <code>Paginator</code> to remain ultra-fast even when querying 10,000+ records!
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Metric Cards -->
+  <div class="row g-4 mb-4">
+    <!-- 1. Active Subscriptions -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-0 stat-card">
+        <div class="card-body">
+          <span class="text-muted small text-uppercase fw-bold">Active Subscriptions</span>
+          <h2 class="display-6 fw-bold my-2 text-primary-brand">{{ active_subscriptions_count }}</h2>
+          <small class="text-muted">Live recurring subscriber contracts</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Revenue Received -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-0 stat-card-success">
+        <div class="card-body">
+          <span class="text-muted small text-uppercase fw-bold">Revenue Received</span>
+          <h2 class="display-6 fw-bold my-2 text-success">${{ total_revenue }}</h2>
+          <small class="text-muted">Total settled customer payments</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Outstanding Amount -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-0 stat-card-warning">
+        <div class="card-body">
+          <span class="text-muted small text-uppercase fw-bold">Outstanding Amount</span>
+          <h2 class="display-6 fw-bold my-2 text-warning">${{ total_outstanding }}</h2>
+          <small class="text-muted">Unpaid balance on invoiced billing</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Overdue Invoices -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-0 stat-card-danger">
+        <div class="card-body">
+          <span class="text-muted small text-uppercase fw-bold">Overdue Invoices</span>
+          <h2 class="display-6 fw-bold my-2 text-danger">{{ overdue_count }}</h2>
+          <small class="text-muted">Invoices past due date & unpaid</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overdue Invoices Urgent Watchlist -->
+  {% if overdue_invoices %}
+    <div class="card shadow-sm border-danger mb-4">
+      <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between align-items-center">
+        <span>&excl; Action Required: Urgent Overdue Invoices</span>
+        <span class="badge bg-white text-danger">{{ overdue_count }} Total Overdue</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Invoice #</th>
+              <th>Customer</th>
+              <th>Due Date</th>
+              <th>Total</th>
+              <th>Remaining Balance</th>
+              <th class="text-end">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inv in overdue_invoices %}
+              <tr>
+                <td class="fw-bold text-danger">{{ inv.number }}</td>
+                <td>{{ inv.subscription.customer.email }}</td>
+                <td class="text-danger fw-semibold">{{ inv.due_date|date:"M d, Y" }}</td>
+                <td>${{ inv.total }}</td>
+                <td class="fw-bold text-danger">${{ inv.balance_due }}</td>
+                <td class="text-end">
+                  <a href="{% url 'billing:detail' inv.id %}" class="btn btn-sm btn-outline-danger">Review &rarr;</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Paginated Invoices Audit Log -->
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+      <h5 class="mb-0 fw-bold">Recent Billing Statements</h5>
+      <span class="text-muted small">Showing 15 per page</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Invoice #</th>
+            <th>Customer</th>
+            <th>Plan</th>
+            <th>Period</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Balance Due</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in page_obj %}
+            <tr {% if inv.is_overdue %}class="table-danger"{% endif %}>
+              <td class="fw-semibold">{{ inv.number }}</td>
+              <td>{{ inv.subscription.customer.email }}</td>
+              <td>{{ inv.subscription.plan.name }}</td>
+              <td class="small">{{ inv.period_start|date:"M d" }} &ndash; {{ inv.period_end|date:"M d, Y" }}</td>
+              <td>
+                <span class="badge {% if inv.status == 'Paid' %}bg-success{% elif inv.status == 'Confirmed' %}bg-primary{% elif inv.status == 'Cancelled' %}bg-dark{% else %}bg-secondary{% endif %}">
+                  {{ inv.status }}
+                </span>
+              </td>
+              <td>${{ inv.total }}</td>
+              <td class="fw-bold {% if inv.balance_due > 0 %}text-danger{% else %}text-success{% endif %}">
+                ${{ inv.balance_due }}
+              </td>
+              <td class="text-end">
+                <a href="{% url 'billing:detail' inv.id %}" class="btn btn-sm btn-outline-primary">Inspect</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center text-muted py-5">
+                No invoices recorded in database. Run <code>python manage.py seed_data</code> to generate sample data.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Reusable pagination snippet -->
+    <div class="card-footer bg-white border-0 py-3">
+      {% include "includes/pagination.html" %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

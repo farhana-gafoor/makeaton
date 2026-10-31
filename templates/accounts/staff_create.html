@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Create Staff User - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center py-4">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow border-0">
+      <div class="card-header bg-dark text-white py-3">
+        <h5 class="mb-0 fw-bold">Provision New Staff Account</h5>
+        <small class="text-white-50">Administrator privilege restricted view</small>
+      </div>
+      <div class="card-body p-4">
+        {% include "includes/form_errors.html" %}
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="row g-2 mb-3">
+            <div class="col-sm-6">
+              <label for="{{ form.first_name.id_for_label }}" class="form-label fw-semibold">First Name</label>
+              {{ form.first_name }}
+            </div>
+            <div class="col-sm-6">
+              <label for="{{ form.last_name.id_for_label }}" class="form-label fw-semibold">Last Name</label>
+              {{ form.last_name }}
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="{{ form.email.id_for_label }}" class="form-label fw-semibold">Work Email</label>
+            {{ form.email }}
+          </div>
+
+          <div class="mb-3">
+            <label for="{{ form.password.id_for_label }}" class="form-label fw-semibold">Temporary Password</label>
+            {{ form.password }}
+            <div class="form-text small text-muted">
+              {{ form.password.help_text }}
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center mt-4">
+            <a href="{% url 'accounts:home' %}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-danger">Create Staff User</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

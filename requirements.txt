@@ -1,0 +1,10 @@
+# ==============================================================================
+# BrightLoop - Python Dependencies
+# ==============================================================================
+# This file lists the Python packages needed to run the BrightLoop project.
+# Install all dependencies with:
+#     pip install -r requirements.txt
+#
+# Keep dependencies minimal to ensure fast installation during the hackathon.
+
+django>=5.1,<6.2

@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Home - BrightLoop{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  {% if not user.is_authenticated %}
+    <!-- ====================================================================
+         ANONYMOUS / GUEST VISITOR WELCOME SCREEN
+         ==================================================================== -->
+    <div class="p-5 mb-4 bg-light rounded-3 shadow-sm border text-center">
+      <div class="container-fluid py-5">
+        <h1 class="display-5 fw-bold text-primary-brand">BrightLoop Subscriptions</h1>
+        <p class="col-md-8 mx-auto fs-5 text-muted">
+          A modular, offline-first subscription and billing engine built with Django & Bootstrap 5.
+          Manage customer recurring plans, itemized quotes, invoices, and automated lifecycle billing.
+        </p>
+        <div class="d-flex justify-content-center gap-3 mt-4">
+          <a href="{% url 'accounts:signup' %}" class="btn btn-primary btn-lg px-4 shadow">Get Started (Customer)</a>
+          <a href="{% url 'accounts:login' %}" class="btn btn-outline-secondary btn-lg px-4">Sign In</a>
+          <a href="{% url 'catalog:plan_list' %}" class="btn btn-outline-primary btn-lg px-4">View Plans</a>
+        </div>
+      </div>
+    </div>
+
+  {% elif user.role == 'customer' %}
+    <!-- ====================================================================
+         CUSTOMER DASHBOARD PLACEHOLDER
+         ==================================================================== -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h2 class="fw-bold mb-1">Welcome back, {{ user.first_name|default:user.email }}!</h2>
+        <p class="text-muted mb-0">Customer Portal &bull; Self-service subscription management</p>
+      </div>
+      <span class="badge badge-role-customer fs-6 px-3 py-2 text-uppercase">Customer Tier</span>
+    </div>
+
+    <div class="row g-4 mb-4">
+      <div class="col-md-4">
+        <div class="card h-100 shadow-sm border-0 stat-card">
+          <div class="card-body">
+            <h5 class="card-title text-muted text-uppercase fs-6">My Subscriptions</h5>
+            <p class="card-text text-muted">Review your active recurring plans, renewal terms, and contract status.</p>
+            <a href="{% url 'subscriptions:list' %}" class="btn btn-primary btn-sm">View Subscriptions &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 shadow-sm border-0 stat-card-success">
+          <div class="card-body">
+            <h5 class="card-title text-muted text-uppercase fs-6">My Invoices & Receipts</h5>
+            <p class="card-text text-muted">Inspect itemized billing statements, payment receipts, and balance due.</p>
+            <a href="{% url 'billing:list' %}" class="btn btn-outline-primary btn-sm">View Invoices &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 shadow-sm border-0 stat-card-warning">
+          <div class="card-body">
+            <h5 class="card-title text-muted text-uppercase fs-6">Catalog & Upgrades</h5>
+            <p class="card-text text-muted">Explore additional tiers, add-on products, and seasonal promotional plans.</p>
+            <a href="{% url 'catalog:plan_list' %}" class="btn btn-outline-secondary btn-sm">Explore Plans &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  {% elif user.role == 'staff' %}
+    <!-- ====================================================================
+         STAFF OPERATIONS DASHBOARD PLACEHOLDER
+         ==================================================================== -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h2 class="fw-bold mb-1">Staff Operations Desk</h2>
+        <p class="text-muted mb-0">Signed in as: <strong>{{ user.email }}</strong></p>
+      </div>
+      <span class="badge badge-role-staff fs-6 px-3 py-2 text-uppercase">Staff Member</span>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Finance Analytics</h6>
+            <p class="small text-muted">Real-time revenue metrics, overdue statements, and key financial aggregates.</p>
+            <a href="{% url 'dashboard:finance' %}" class="btn btn-primary btn-sm">Open Dashboard &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-success">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Subscriptions Hub</h6>
+            <p class="small text-muted">Manage quotations, confirm contract states, and verify renewal schedules.</p>
+            <a href="{% url 'subscriptions:list' %}" class="btn btn-outline-primary btn-sm">All Subscriptions &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-warning">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Invoices & Billing</h6>
+            <p class="small text-muted">Audit generated invoices, record offline payments, and track overdue collections.</p>
+            <a href="{% url 'billing:list' %}" class="btn btn-outline-primary btn-sm">All Invoices &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-danger">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Product Catalog</h6>
+            <p class="small text-muted">Review available subscription tiers, products, tax rules, and discount codes.</p>
+            <a href="{% url 'catalog:plan_list' %}" class="btn btn-outline-secondary btn-sm">Catalog Overview &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  {% elif user.is_role_admin %}
+    <!-- ====================================================================
+         ADMINISTRATOR MASTER CONSOLE PLACEHOLDER
+         ==================================================================== -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h2 class="fw-bold mb-1">Administrator Control Center</h2>
+        <p class="text-muted mb-0">System Authority &bull; Full oversight of users, billing engines, and system catalog.</p>
+      </div>
+      <span class="badge badge-role-admin fs-6 px-3 py-2 text-uppercase">Super Administrator</span>
+    </div>
+
+    <div class="row g-4 mb-4">
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Finance Dashboard</h6>
+            <p class="small text-muted">High-level financial KPIs, revenue aggregation, and cashflow reports.</p>
+            <a href="{% url 'dashboard:finance' %}" class="btn btn-primary btn-sm">Open Analytics &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-danger">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Staff Management</h6>
+            <p class="small text-muted">Provision new internal staff accounts (Admin privilege only).</p>
+            <a href="{% url 'accounts:staff_create' %}" class="btn btn-outline-danger btn-sm">Add Staff User &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-success">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Subscription Engine</h6>
+            <p class="small text-muted">Manage global subscriptions, state transitions, and automated billing tasks.</p>
+            <a href="{% url 'subscriptions:list' %}" class="btn btn-outline-primary btn-sm">View Subscriptions &rarr;</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card h-100 shadow-sm border-0 stat-card-warning">
+          <div class="card-body">
+            <h6 class="text-muted text-uppercase">Django Admin</h6>
+            <p class="small text-muted">Direct low-level database CRUD operations for all registered models.</p>
+            <a href="/admin/" target="_blank" class="btn btn-outline-dark btn-sm">Open Django Admin &nearr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
