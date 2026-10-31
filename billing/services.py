@@ -2,93 +2,234 @@
 billing/services.py
 ===================
 Purpose:
-    Core business logic and domain services for recurring billing generation.
-    Contains the atomic transaction stub for automated subscription invoicing.
+    Domain services and business logic for automated recurring billing.
+    Provides generate_invoice() with atomic transactions, idempotency guards,
+    discount deductions, tax calculations, and dry-run simulation.
 """
 
-from decimal import Decimal
 import logging
+import uuid
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import timedelta
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from subscriptions.models import Subscription
+from .models import Discount, Invoice, InvoiceLine
 
 logger = logging.getLogger(__name__)
 
 
+class DuplicateInvoiceError(Exception):
+    """
+    Raised when an invoice has already been generated for a subscription
+    for the specified billing period_start.
+    """
+    pass
+
+
 @transaction.atomic
-def generate_invoice(subscription: Subscription):
+def generate_invoice(
+    subscription: Subscription,
+    period_start=None,
+    period_end=None,
+    dry_run: bool = False,
+    discount: Discount = None,
+    status: str = Invoice.STATUS_DRAFT,
+) -> Invoice:
     """
-    STUB SERVICE: Generates an Invoice and InvoiceLines for a given Subscription.
-    
-    This function is wrapped in `@transaction.atomic` to guarantee that all DB
-    operations (invoice creation, line copying, discount updates, and advancing
-    subscription dates) succeed together or rollback completely on error.
+    Generates an itemized Invoice and InvoiceLines for a given Subscription.
 
-    ============================================================================
-    STEP-BY-STEP IMPLEMENTATION ROADMAP FOR DEVELOPERS:
-    ============================================================================
-    
-    Step 1: Check if already billed (Idempotency Guard)
-    --------------------------------------------------
-    - Check if an Invoice already exists for this (subscription, period_start).
-    - If it already exists, return None or the existing invoice and log a warning.
-    - Prevents double billing.
+    Parameters:
+        subscription (Subscription): Active customer subscription contract.
+        period_start (date, optional): Billing cycle start date. Defaults to
+            subscription.next_invoice_date or subscription.start_date.
+        period_end (date, optional): Billing cycle end date. Calculated automatically
+            from subscription.plan.billing_period if omitted.
+        dry_run (bool): If True, computes the complete invoice and lines in-memory
+            without persisting any records to the database.
+        discount (Discount, optional): Eligible promotional discount to apply.
+        status (str): Initial invoice status (defaults to DRAFT).
 
-    Step 2: Determine Billing Period Dates
-    --------------------------------------
-    - period_start = subscription.next_invoice_date or subscription.start_date.
-    - Determine period_end based on subscription.plan.billing_period:
-        * 'daily':   period_start + timedelta(days=1)
-        * 'weekly':  period_start + timedelta(weeks=1)
-        * 'monthly': period_start + 30 days (or calendar month offset)
-        * 'yearly':  period_start + 365 days
-    - due_date = period_start + 14 days (or customized by subscription.payment_terms).
+    Returns:
+        Invoice: The generated Invoice instance (persisted if dry_run=False, in-memory if dry_run=True).
 
-    Step 3: Copy Subscription Lines to Invoice Lines
-    ------------------------------------------------
-    - Iterate over `subscription.lines.all()`.
-    - For each SubscriptionLine:
-        * Create an `InvoiceLine(invoice=..., product=line.product, description=line.product.name,
-                                quantity=line.quantity, unit_price=line.unit_price, ...)`
-        * Calculate line_subtotal = quantity * unit_price.
-
-    Step 4: Check & Apply Eligible Discounts
-    ----------------------------------------
-    - Query active discounts where:
-        * applies_to matches 'subscriptions' or specific products in the cart
-        * today >= start_date and today <= end_date (if dates set)
-        * times_used < usage_limit (if limit set)
-        * order_subtotal >= min_purchase
-        * line_quantity >= min_quantity
-    - Calculate discount_amount:
-        * If type == 'percent': (subtotal * discount.value) / 100
-        * If type == 'fixed': min(subtotal, discount.value)
-    - Increment discount.times_used += 1 and save.
-
-    Step 5: Calculate Taxes
-    -----------------------
-    - For each line item with an assigned Tax:
-        * tax_amount += (line_subtotal * (tax.rate / 100))
-
-    Step 6: Compute Final Totals
-    ----------------------------
-    - subtotal = sum of all line amounts
-    - total = max(0, subtotal - discount_amount + tax_amount)
-    - Save invoice record with status = 'Confirmed' (or 'Draft').
-
-    Step 7: Advance Next Invoice Date on Subscription
-    -------------------------------------------------
-    - Advance subscription.next_invoice_date = period_end.
-    - Save subscription.
-
-    Step 8: Return the newly created Invoice instance
-    -------------------------------------------------
+    Raises:
+        DuplicateInvoiceError: If an invoice already exists for (subscription, period_start).
     """
-    logger.info(f"Triggered generate_invoice stub for Subscription: {subscription.number}")
+    # --------------------------------------------------------------------------
+    # 1. Determine Billing Period Dates
+    # --------------------------------------------------------------------------
+    if period_start is None:
+        period_start = subscription.next_invoice_date or subscription.start_date or timezone.localdate()
 
     # --------------------------------------------------------------------------
-    # TODO (Hackathon Developer Task):
-    # Implement the 8 steps above. Below is the stub return so the code runs
-    # smoothly during testing and imports without errors.
+    # 2. Idempotency Guard: Prevent Duplicate Invoicing for the Same Period
     # --------------------------------------------------------------------------
-    return None
+    if Invoice.objects.filter(subscription=subscription, period_start=period_start).exists():
+        msg = f"Invoice already exists for subscription {subscription.number} and period start {period_start}."
+        logger.warning(msg)
+        raise DuplicateInvoiceError(msg)
+
+    # Calculate period_end if not explicitly provided
+    if period_end is None:
+        billing_period = getattr(subscription.plan, "billing_period", "monthly")
+        if billing_period == "daily":
+            period_end = period_start + timedelta(days=1)
+        elif billing_period == "weekly":
+            period_end = period_start + timedelta(weeks=1)
+        elif billing_period == "yearly":
+            period_end = period_start + timedelta(days=365)
+        else:  # monthly
+            period_end = period_start + timedelta(days=30)
+
+    # Determine due date based on subscription payment terms
+    terms = (getattr(subscription, "payment_terms", "") or "").strip().lower()
+    if "net" in terms:
+        try:
+            days = int("".join(filter(str.isdigit, terms)))
+            due_date = period_start + timedelta(days=days)
+        except ValueError:
+            due_date = period_start + timedelta(days=14)
+    elif "immediate" in terms:
+        due_date = period_start
+    else:
+        due_date = period_start + timedelta(days=14)
+
+    issue_date = timezone.localdate()
+
+    # --------------------------------------------------------------------------
+    # 3. Compile Itemized Line Items from Subscription
+    # --------------------------------------------------------------------------
+    raw_lines = []
+    sub_lines = list(subscription.lines.select_related("product", "tax").all())
+
+    if sub_lines:
+        for s_line in sub_lines:
+            tax_rate = s_line.tax.rate if s_line.tax else Decimal("0.00")
+            raw_lines.append({
+                "product": s_line.product,
+                "description": f"{s_line.product.name} ({subscription.plan.name})",
+                "quantity": s_line.quantity,
+                "unit_price": s_line.unit_price,
+                "tax_rate": tax_rate,
+            })
+    elif subscription.plan:
+        raw_lines.append({
+            "product": None,
+            "description": f"{subscription.plan.name} - Recurring Subscription",
+            "quantity": 1,
+            "unit_price": subscription.plan.price,
+            "tax_rate": Decimal("0.00"),
+        })
+
+    # --------------------------------------------------------------------------
+    # 4. Compute Gross Subtotal
+    # --------------------------------------------------------------------------
+    subtotal = Decimal("0.00")
+    for item in raw_lines:
+        line_sub = Decimal(item["quantity"]) * item["unit_price"]
+        item["line_subtotal"] = line_sub
+        subtotal += line_sub
+
+    # --------------------------------------------------------------------------
+    # 5. Apply Eligible Discount
+    # --------------------------------------------------------------------------
+    discount_total = Decimal("0.00")
+    applied_discount = discount
+
+    if applied_discount:
+        discount_total = applied_discount.calculate(subtotal, on_date=issue_date)
+
+    # ==========================================================================
+    # TAX CALCULATION POLICY:
+    # --------------------------------------------------------------------------
+    # Discounts are applied BEFORE sales tax is calculated.
+    # In standard commercial accounting and statutory VAT/GST frameworks, tax is
+    # assessed on the net taxable consideration received from the customer rather
+    # than the undiscounted list price. This ensures customers are only taxed on
+    # the amount actually charged.
+    # ==========================================================================
+    tax_total = Decimal("0.00")
+    for item in raw_lines:
+        line_sub = item["line_subtotal"]
+        if subtotal > Decimal("0.00") and discount_total > Decimal("0.00"):
+            # Allocate discount proportionally across line items
+            line_discount = (line_sub / subtotal) * discount_total
+            taxable_base = max(Decimal("0.00"), line_sub - line_discount)
+        else:
+            taxable_base = line_sub
+
+        line_tax = (taxable_base * item["tax_rate"] / Decimal("100")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        item["line_tax"] = line_tax
+        tax_total += line_tax
+
+    # Final payable balance: subtotal - discount_total + tax_total
+    total = max(Decimal("0.00"), subtotal - discount_total + tax_total)
+
+    # --------------------------------------------------------------------------
+    # 6. Instantiate Invoice
+    # --------------------------------------------------------------------------
+    invoice = Invoice(
+        subscription=subscription,
+        period_start=period_start,
+        period_end=period_end,
+        issue_date=issue_date,
+        due_date=due_date,
+        status=status,
+        discount=applied_discount,
+        subtotal=subtotal,
+        discount_total=discount_total,
+        tax_total=tax_total,
+        total=total,
+    )
+
+    # --------------------------------------------------------------------------
+    # 7. Dry-Run Mode: Return In-Memory Representation Without Database Writes
+    # --------------------------------------------------------------------------
+    if dry_run:
+        invoice.invoice_number = f"INV-DRYRUN-{uuid.uuid4().hex[:6].upper()}"
+        invoice._dry_run_lines = [
+            InvoiceLine(
+                invoice=invoice,
+                product=item["product"],
+                description=item["description"],
+                quantity=item["quantity"],
+                unit_price=item["unit_price"],
+                tax_rate=item["tax_rate"],
+                amount=item["line_subtotal"],
+            )
+            for item in raw_lines
+        ]
+        return invoice
+
+    # --------------------------------------------------------------------------
+    # 8. Persist Invoice, Line Items, and Update Counter/Dates
+    # --------------------------------------------------------------------------
+    invoice.save()
+
+    for item in raw_lines:
+        InvoiceLine.objects.create(
+            invoice=invoice,
+            product=item["product"],
+            description=item["description"],
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            tax_rate=item["tax_rate"],
+            amount=item["line_subtotal"],
+        )
+
+    # Increment discount usage limit only when actually saved
+    if applied_discount and discount_total > Decimal("0.00"):
+        applied_discount.times_used = F("times_used") + 1
+        applied_discount.save(update_fields=["times_used"])
+        applied_discount.refresh_from_db(fields=["times_used"])
+
+    # Advance subscription's next_invoice_date
+    subscription.next_invoice_date = period_end
+    subscription.save(update_fields=["next_invoice_date", "updated_at"])
+
+    logger.info(f"Generated invoice {invoice.invoice_number} for subscription {subscription.number}")
+    return invoice

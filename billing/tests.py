@@ -3,18 +3,21 @@ billing/tests.py
 ================
 Purpose:
     Unit tests for billing models, validations, dynamic financial calculations,
-    status transitions, and manager queries.
+    status transitions, invoice generation service, and management commands.
 """
 
+from io import StringIO
 from decimal import Decimal
 from datetime import date, timedelta
 from django.test import TestCase
 from django.db import IntegrityError
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.contrib.auth import get_user_model
-from catalog.models import Plan, Product
-from subscriptions.models import Subscription
+from catalog.models import Plan, Product, Tax
+from subscriptions.models import Subscription, SubscriptionLine
 from billing.models import Discount, Invoice, InvoiceLine, Payment
+from billing.services import generate_invoice, DuplicateInvoiceError
 
 User = get_user_model()
 
@@ -120,7 +123,6 @@ class BillingModelTests(TestCase):
             due_date=self.today + timedelta(days=14),
         )
 
-        # Zero payment
         with self.assertRaises(ValidationError):
             p_zero = Payment(invoice=inv, amount=Decimal("0.00"), method=Payment.METHOD_CARD)
             p_zero.clean()
@@ -129,7 +131,6 @@ class BillingModelTests(TestCase):
             p_zero = Payment(invoice=inv, amount=Decimal("0.00"), method=Payment.METHOD_CARD)
             p_zero.save()
 
-        # Negative payment
         with self.assertRaises(ValidationError):
             p_neg = Payment(invoice=inv, amount=Decimal("-10.00"), method=Payment.METHOD_CARD)
             p_neg.clean()
@@ -173,7 +174,6 @@ class BillingModelTests(TestCase):
             recorded_by=self.staff_user,
         )
 
-        # Can increase amount up to the remaining total (100.00)
         p1.amount = Decimal("80.00")
         p1.clean()
         p1.save()
@@ -181,7 +181,6 @@ class BillingModelTests(TestCase):
         self.assertEqual(inv.amount_paid, Decimal("80.00"))
         self.assertEqual(inv.balance_due, Decimal("20.00"))
 
-        # Cannot exceed total
         p1.amount = Decimal("105.00")
         with self.assertRaises(ValidationError):
             p1.clean()
@@ -197,26 +196,54 @@ class BillingModelTests(TestCase):
             due_date=self.today + timedelta(days=14),
         )
 
-        # Partial payment 1: $40.00
         Payment.objects.create(invoice=inv, amount=Decimal("40.00"), method=Payment.METHOD_CARD)
         inv.refresh_from_db()
         self.assertEqual(inv.amount_paid, Decimal("40.00"))
         self.assertEqual(inv.balance_due, Decimal("60.00"))
         self.assertEqual(inv.status, Invoice.STATUS_CONFIRMED)
 
-        # Partial payment 2: $60.00 (remaining balance)
         Payment.objects.create(invoice=inv, amount=Decimal("60.00"), method=Payment.METHOD_UPI)
         inv.refresh_from_db()
         self.assertEqual(inv.amount_paid, Decimal("100.00"))
         self.assertEqual(inv.balance_due, Decimal("0.00"))
         self.assertEqual(inv.status, Invoice.STATUS_PAID)
 
+    def test_status_transitions_confirm_and_mark_paid(self):
+        """Verifies confirm() and mark_paid() enforce state transitions and raise ValidationError on illegal moves."""
+        inv = Invoice.objects.create(
+            subscription=self.sub,
+            period_start=self.today,
+            period_end=self.today + timedelta(days=30),
+            status=Invoice.STATUS_DRAFT,
+            total=Decimal("100.00"),
+            due_date=self.today + timedelta(days=14),
+        )
+
+        # Illegal: cannot jump DRAFT -> PAID
+        with self.assertRaises(ValidationError):
+            inv.mark_paid()
+
+        # Valid: DRAFT -> CONFIRMED
+        inv.confirm()
+        self.assertEqual(inv.status, Invoice.STATUS_CONFIRMED)
+
+        # Illegal: cannot re-confirm CONFIRMED
+        with self.assertRaises(ValidationError):
+            inv.confirm()
+
+        # Valid: CONFIRMED -> PAID
+        inv.mark_paid()
+        self.assertEqual(inv.status, Invoice.STATUS_PAID)
+
+        # Illegal: cannot move from terminal PAID state
+        with self.assertRaises(ValidationError):
+            inv.confirm()
+
     def test_overdue_and_outstanding_queries(self):
         """Verifies overdue() and outstanding() manager querysets return expected invoices."""
         past_date = self.today - timedelta(days=20)
         future_date = self.today + timedelta(days=20)
 
-        # 1. Overdue and confirmed (should be in both overdue and outstanding)
         inv_overdue = Invoice.objects.create(
             subscription=self.sub,
             period_start=past_date - timedelta(days=30),
@@ -226,7 +253,6 @@ class BillingModelTests(TestCase):
             due_date=past_date,
         )
 
-        # 2. Overdue but PAID (should NOT be in overdue or outstanding)
         inv_paid_past = Invoice.objects.create(
             subscription=self.sub,
             period_start=past_date - timedelta(days=60),
@@ -237,7 +263,6 @@ class BillingModelTests(TestCase):
         )
         Payment.objects.create(invoice=inv_paid_past, amount=Decimal("100.00"), method=Payment.METHOD_CASH)
 
-        # 3. Future due date and CONFIRMED (should be in outstanding, NOT in overdue)
         inv_future = Invoice.objects.create(
             subscription=self.sub,
             period_start=self.today,
@@ -247,7 +272,6 @@ class BillingModelTests(TestCase):
             due_date=future_date,
         )
 
-        # 4. Draft invoice with past due date (should be in overdue, NOT in outstanding)
         inv_draft = Invoice.objects.create(
             subscription=self.sub,
             period_start=past_date - timedelta(days=90),
@@ -271,17 +295,14 @@ class BillingModelTests(TestCase):
 
     def test_discount_validation_and_calculation(self):
         """Verifies Discount model validations and calculate() logic."""
-        # Percentage must be <= 100
         disc_invalid_pct = Discount(name="Over 100", code="ERR101", type=Discount.TYPE_PERCENTAGE, value=Decimal("105.00"))
         with self.assertRaises(ValidationError):
             disc_invalid_pct.clean()
 
-        # Fixed must be > 0
         disc_invalid_fixed = Discount(name="Zero Fixed", code="ERR0", type=Discount.TYPE_FIXED, value=Decimal("0.00"))
         with self.assertRaises(ValidationError):
             disc_invalid_fixed.clean()
 
-        # valid_to >= valid_from
         disc_invalid_dates = Discount(
             name="Date Error",
             code="ERRDATE",
@@ -293,7 +314,6 @@ class BillingModelTests(TestCase):
         with self.assertRaises(ValidationError):
             disc_invalid_dates.clean()
 
-        # Valid percentage discount: 20% off
         disc_pct = Discount.objects.create(
             name="20 Percent Off",
             code="SAVE20",
@@ -303,7 +323,6 @@ class BillingModelTests(TestCase):
         )
         self.assertEqual(disc_pct.calculate(Decimal("100.00")), Decimal("20.00"))
 
-        # Valid fixed discount: $25 off
         disc_fixed = Discount.objects.create(
             name="25 Off",
             code="SAVE25",
@@ -312,16 +331,219 @@ class BillingModelTests(TestCase):
             is_active=True,
         )
         self.assertEqual(disc_fixed.calculate(Decimal("100.00")), Decimal("25.00"))
-        # Fixed discount never exceeds amount
         self.assertEqual(disc_fixed.calculate(Decimal("15.00")), Decimal("15.00"))
 
-        # Inactive discount returns 0
         disc_fixed.is_active = False
         disc_fixed.save()
         self.assertEqual(disc_fixed.calculate(Decimal("100.00")), Decimal("0.00"))
 
-        # Usage limit reached returns 0
         disc_pct.usage_limit = 1
         disc_pct.times_used = 1
         disc_pct.save()
         self.assertEqual(disc_pct.calculate(Decimal("100.00")), Decimal("0.00"))
+
+
+class BillingServiceTests(TestCase):
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            email="service_customer@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_CUSTOMER,
+        )
+        self.tax_18 = Tax.objects.create(name="GST 18%", rate=Decimal("18.00"))
+        self.tax_5 = Tax.objects.create(name="VAT 5%", rate=Decimal("5.00"))
+
+        self.plan = Plan.objects.create(
+            name="Pro Recurring",
+            price=Decimal("100.00"),
+            billing_period=Plan.PERIOD_MONTHLY,
+        )
+        self.prod_api = Product.objects.create(
+            name="API Access",
+            sales_price=Decimal("60.00"),
+        )
+        self.prod_support = Product.objects.create(
+            name="Priority Support",
+            sales_price=Decimal("40.00"),
+        )
+
+        self.sub = Subscription.objects.create(
+            customer=self.customer,
+            plan=self.plan,
+            status=Subscription.STATUS_ACTIVE,
+            start_date=date.today(),
+            next_invoice_date=date.today(),
+            payment_terms="Net 15",
+        )
+        SubscriptionLine.objects.create(
+            subscription=self.sub,
+            product=self.prod_api,
+            quantity=1,
+            unit_price=Decimal("60.00"),
+            tax=self.tax_18,
+            amount=Decimal("60.00"),
+        )
+        SubscriptionLine.objects.create(
+            subscription=self.sub,
+            product=self.prod_support,
+            quantity=1,
+            unit_price=Decimal("40.00"),
+            tax=self.tax_5,
+            amount=Decimal("40.00"),
+        )
+
+    def test_generate_invoice_persists_lines_and_advances_date(self):
+        """Verifies generate_invoice() creates invoice, lines, and advances next_invoice_date."""
+        start = date.today()
+        inv = generate_invoice(self.sub, period_start=start)
+
+        self.assertIsNotNone(inv.id)
+        self.assertEqual(inv.subscription, self.sub)
+        self.assertEqual(inv.subtotal, Decimal("100.00"))
+        # Line 1: 60 * 18% = 10.80
+        # Line 2: 40 * 5% = 2.00
+        # tax_total = 12.80
+        self.assertEqual(inv.tax_total, Decimal("12.80"))
+        self.assertEqual(inv.total, Decimal("112.80"))
+        self.assertEqual(inv.lines.count(), 2)
+
+        # Check advanced next_invoice_date
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.next_invoice_date, inv.period_end)
+
+    def test_generate_invoice_duplicate_raises_error(self):
+        """Verifies duplicate invoice creation for the same period raises DuplicateInvoiceError."""
+        start = date.today()
+        generate_invoice(self.sub, period_start=start)
+
+        with self.assertRaises(DuplicateInvoiceError):
+            generate_invoice(self.sub, period_start=start)
+
+    def test_generate_invoice_with_discount_applied_before_tax(self):
+        """
+        Verifies discount is applied before tax and allocated proportionally across lines:
+          - Subtotal: $100 ($60 @ 18% tax, $40 @ 5% tax)
+          - Discount: $20 (allocated: $12 to Line 1, $8 to Line 2)
+          - Line 1 taxable: $48 * 18% = $8.64
+          - Line 2 taxable: $32 * 5% = $1.60
+          - Tax total: $10.24
+          - Total: $100 - $20 + $10.24 = $90.24
+        """
+        disc = Discount.objects.create(
+            name="20 Dollar Voucher",
+            code="VOUCHER20",
+            type=Discount.TYPE_FIXED,
+            value=Decimal("20.00"),
+            is_active=True,
+        )
+
+        inv = generate_invoice(self.sub, period_start=date.today(), discount=disc)
+        self.assertEqual(inv.subtotal, Decimal("100.00"))
+        self.assertEqual(inv.discount_total, Decimal("20.00"))
+        self.assertEqual(inv.tax_total, Decimal("10.24"))
+        self.assertEqual(inv.total, Decimal("90.24"))
+
+        # Discount times_used incremented
+        disc.refresh_from_db()
+        self.assertEqual(disc.times_used, 1)
+
+    def test_generate_invoice_dry_run_saves_nothing(self):
+        """Verifies dry_run=True computes complete invoice without touching the database."""
+        disc = Discount.objects.create(
+            name="10 Percent Voucher",
+            code="VOUCHER10",
+            type=Discount.TYPE_PERCENTAGE,
+            value=Decimal("10.00"),
+            is_active=True,
+        )
+        orig_next_date = self.sub.next_invoice_date
+
+        inv = generate_invoice(self.sub, period_start=date.today(), dry_run=True, discount=disc)
+
+        # In-memory calculations are accurate
+        self.assertIsNone(inv.id)
+        self.assertTrue(inv.invoice_number.startswith("INV-DRYRUN-"))
+        self.assertEqual(inv.subtotal, Decimal("100.00"))
+        self.assertEqual(inv.discount_total, Decimal("10.00"))
+        self.assertEqual(len(inv._dry_run_lines), 2)
+
+        # Database state remains completely untouched
+        self.assertEqual(Invoice.objects.count(), 0)
+        self.assertEqual(InvoiceLine.objects.count(), 0)
+
+        disc.refresh_from_db()
+        self.assertEqual(disc.times_used, 0)
+
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.next_invoice_date, orig_next_date)
+
+
+class BillingCommandTests(TestCase):
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            email="cmd_customer@brightloop.local",
+            password="Password@123",
+            role=User.ROLE_CUSTOMER,
+        )
+        self.plan = Plan.objects.create(
+            name="Basic Monthly",
+            price=Decimal("50.00"),
+            billing_period=Plan.PERIOD_MONTHLY,
+        )
+        self.today = date.today()
+
+        # Due subscription
+        self.sub_due = Subscription.objects.create(
+            customer=self.customer,
+            plan=self.plan,
+            status=Subscription.STATUS_ACTIVE,
+            start_date=self.today - timedelta(days=35),
+            next_invoice_date=self.today - timedelta(days=5),
+        )
+
+        # Future subscription (not due)
+        self.sub_future = Subscription.objects.create(
+            customer=self.customer,
+            plan=self.plan,
+            status=Subscription.STATUS_ACTIVE,
+            start_date=self.today,
+            next_invoice_date=self.today + timedelta(days=20),
+        )
+
+    def test_run_billing_dry_run_flag(self):
+        """Verifies run_billing --dry-run prints plan without creating database records."""
+        out = StringIO()
+        call_command("run_billing", "--dry-run", stdout=out)
+        output = out.getvalue()
+
+        self.assertIn("[DRY-RUN]", output)
+        self.assertIn("Found 1 active subscription(s) eligible for billing.", output)
+        self.assertIn("Created:             1", output)
+        # Database count must be 0
+        self.assertEqual(Invoice.objects.count(), 0)
+
+    def test_run_billing_persists_invoices(self):
+        """Verifies run_billing creates invoice and advances due subscription date."""
+        out = StringIO()
+        call_command("run_billing", stdout=out)
+        output = out.getvalue()
+
+        self.assertIn("[CREATED]", output)
+        self.assertEqual(Invoice.objects.filter(subscription=self.sub_due).count(), 1)
+
+        # Re-running the command skips duplicate without crashing
+        out2 = StringIO()
+        call_command("run_billing", stdout=out2)
+        output2 = out2.getvalue()
+        # sub_due date was advanced, so 0 subscriptions are due
+        self.assertIn("Found 0 active subscription(s) eligible for billing.", output2)
+
+    def test_run_billing_with_subscription_filter(self):
+        """Verifies run_billing --subscription targets only the specified subscription."""
+        out = StringIO()
+        call_command("run_billing", "--subscription", str(self.sub_future.id), stdout=out)
+        output = out.getvalue()
+
+        self.assertIn(f"Found 1 active subscription(s) eligible for billing.", output)
+        self.assertEqual(Invoice.objects.filter(subscription=self.sub_future).count(), 1)
+        self.assertEqual(Invoice.objects.filter(subscription=self.sub_due).count(), 0)
